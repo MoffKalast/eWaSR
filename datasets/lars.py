@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import torch
+import torch.distributed as dist
 import torchvision.transforms.functional as TF
 import yaml
 
@@ -88,15 +89,24 @@ class ResolutionBatchSampler(torch.utils.data.Sampler):
 	(stochastic multiplicity of 1, re-rolled per epoch). Because bigger buckets
 	receive more samples, batch counts are naturally proportional to image count.
 	The trailing partial batch of each bucket is dropped.
+
+	Under DDP the full batch list is built identically on every rank (same seed
+	and epoch) and then sharded, so ranks see disjoint data and an equal batch
+	count. Trainer must be constructed with use_distributed_sampler=False so
+	Lightning does not try to inject its own sampler.
 	"""
 	def __init__(self, sample_sizes, batch_size, shuffle=True, drop_last=True, seed=0):
 		self.sample_sizes = sample_sizes
 		self.batch_size = batch_size
 		self.shuffle = shuffle
 		self.drop_last = drop_last
-		self.seed = seed
+		self.seed = seed if seed is not None else 0
 		self.epoch = 0
-		self._length = len(self._build_batches(self.seed))
+
+	def _world_rank(self):
+		if dist.is_available() and dist.is_initialized():
+			return dist.get_world_size(), dist.get_rank()
+		return 1, 0
 
 	def _build_batches(self, seed):
 		rng = random.Random(seed)
@@ -117,6 +127,14 @@ class ResolutionBatchSampler(torch.utils.data.Sampler):
 
 		if self.shuffle:
 			rng.shuffle(batches)
+
+		# Shard across DDP ranks. Trim to a multiple of world size first so every
+		# rank runs the same number of steps, otherwise DDP deadlocks.
+		world, rank = self._world_rank()
+		if world > 1:
+			batches = batches[:len(batches) - (len(batches) % world)]
+			batches = batches[rank::world]
+
 		return batches
 
 	def __iter__(self):
@@ -125,4 +143,4 @@ class ResolutionBatchSampler(torch.utils.data.Sampler):
 		return iter(batches)
 
 	def __len__(self):
-		return self._length
+		return len(self._build_batches(self.seed + self.epoch))

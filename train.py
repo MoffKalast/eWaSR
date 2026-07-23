@@ -131,16 +131,22 @@ def train_wasr(args):
         callbacks.append(LearningRateMonitor(logging_interval='step'))
         callbacks.append(ModelExporter())
 
+    devices = args.gpus
+    if isinstance(devices, str) and devices.isdigit():
+        devices = int(devices)
+
+    precision = {16: '16-mixed', 32: '32-true'}.get(args.precision, args.precision)
+
     trainer = pl.Trainer(logger=logger,
-                         gpus=args.gpus,
+                         accelerator='gpu',
+                         devices=devices,
                          max_epochs=args.epochs,
-                         #accelerator='ddp',
-                         resume_from_checkpoint=args.resume_from,
                          callbacks=callbacks,
                          sync_batchnorm=True,
+                         use_distributed_sampler=False,
                          log_every_n_steps=args.log_steps,
-                         precision=args.precision)
-    trainer.fit(model, train_dl, val_dl)
+                         precision=precision)
+    trainer.fit(model, train_dl, val_dl, ckpt_path=args.resume_from)
 
 
 def main():
