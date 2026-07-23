@@ -66,10 +66,9 @@ class WaSR(nn.Module):
 
         features = self.backbone(x['image'])
 
-        features['imu_mask'] = x['imu_mask'].float().unsqueeze(1)
-        features = (features['out'], features['aux'], features['skip2'], features['skip1'], features['imu_mask'])
-        aux = features[1]
-        x = self.decoder(*features)
+        imu_mask = x['imu_mask'].float().unsqueeze(1) if self.imu else None
+        aux = features['aux']
+        x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask)
 
         # Return segmentation map and aux feature map
         output = OrderedDict([

@@ -10,7 +10,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, Learning
 import wasr.models as models
 from wasr.train import LitModel
 from wasr.utils import ModelExporter, load_weights
-from datasets.mastr import MaSTr1325Dataset
+from datasets.lars import LaRSDataset, ResolutionBatchSampler
 from datasets.transforms import get_augmentation_transform, PytorchHubNormalization
 
 
@@ -24,7 +24,7 @@ RANDOM_SEED = None
 OUTPUT_DIR = 'output'
 PRETRAINED_DEEPLAB = True
 PRECISION = 32
-MODEL = "ewasr_resnet18_imu"#'wasr_resnet18_imu'
+MODEL = "ewasr_resnet18"
 MONITOR_VAR = 'val/loss'
 MONITOR_VAR_MODE = 'min'
 
@@ -99,16 +99,15 @@ def train_wasr(args):
     if not args.no_augmentation:
         transform = get_augmentation_transform()
 
-    train_ds = MaSTr1325Dataset(args.train_config, transform=transform,
-                                normalize_t=normalize_t)
-
-    train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                            num_workers=args.workers, drop_last=True)
+    train_ds = LaRSDataset(args.train_config, transform=transform, normalize_t=normalize_t)
+    train_sampler = ResolutionBatchSampler(train_ds.sample_sizes(), args.batch_size, shuffle=True, drop_last=True, seed=args.random_seed)
+    train_dl = DataLoader(train_ds, batch_sampler=train_sampler, num_workers=args.workers)
 
     val_dl = None
     if args.validation:
-        val_ds = MaSTr1325Dataset(args.val_config, normalize_t=normalize_t, include_original=True)
-        val_dl = DataLoader(val_ds, batch_size=args.batch_size, num_workers=args.workers)
+        val_ds = LaRSDataset(args.val_config, normalize_t=normalize_t, include_original=True)
+        val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
+        val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers)
 
     model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project)
 
