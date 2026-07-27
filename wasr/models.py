@@ -194,16 +194,33 @@ def wasr_deeplabv2_resnet18(num_classes=3, imu=True):
     return model
 
 
+# timm's ResNet-B weights are key- and shape-identical to torchvision's, so they load directly.
+# Fetched by URL rather than via timm.create_model, since the "model.tag" syntax needs timm >= 0.9.
+backbone_weight_urls = {
+    'resnet18': {
+        'a1_in1k': 'https://github.com/huggingface/pytorch-image-models/releases/download/v0.1-rsb-weights/resnet18_a1_0-d63eafa0.pth',
+        'a2_in1k': 'https://github.com/huggingface/pytorch-image-models/releases/download/v0.1-rsb-weights/resnet18_a2_0-b61bd467.pth'
+    },
+    'resnet34': {
+        'a1_in1k': 'https://github.com/huggingface/pytorch-image-models/releases/download/v0.1-rsb-weights/resnet34_a1_0-46f8f793.pth',
+        'a2_in1k': 'https://github.com/huggingface/pytorch-image-models/releases/download/v0.1-rsb-weights/resnet34_a2_0-82d47d71.pth',
+        'a3_in1k': 'https://github.com/huggingface/pytorch-image-models/releases/download/v0.1-rsb-weights/resnet34_a3_0-a20cabb6.pth',
+        'bt_in1k': 'https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/resnet34-43635321.pth',
+        'gluon_in1k': 'https://github.com/rwightman/pytorch-pretrained-gluonresnet/releases/download/v0.1/gluon_resnet34_v1b-c6d82d59.pth'
+    }
+}
+
 def resnet_backbone(name, weights_tag=None):
     ctor = {'resnet18': resnet18, 'resnet34': resnet34}[name]
     if weights_tag is None:
         return ctor(pretrained=True)
 
-    import timm
-    # timm's ResNet-B state dict is key- and shape-identical to torchvision's for resnet18/34,
-    # so the weights transfer directly and downstream checkpoints stay torchvision-loadable.
+    urls = backbone_weight_urls[name]
+    if weights_tag not in urls:
+        raise ValueError('Unknown %s weights tag: %s. Available: %s' % (name, weights_tag, ', '.join(sorted(urls))))
+
     backbone = ctor(pretrained=False)
-    backbone.load_state_dict(timm.create_model('%s.%s' % (name, weights_tag), pretrained=True).state_dict())
+    backbone.load_state_dict(load_state_dict_from_url(urls[weights_tag], progress=True, map_location='cpu'))
     return backbone
 
 
