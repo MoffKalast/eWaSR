@@ -22,10 +22,13 @@ class ModelExporter(pl.Callback):
         self.every_n_epochs = every_n_epochs
 
     def _export(self, trainer, pl_module, filename):
-        # log_dir is only meaningful on rank zero, and only one rank should write
-        if not trainer.is_global_zero or trainer.log_dir is None:
+        # Trainer.log_dir broadcasts across ranks, so every rank has to reach it. Resolving it
+        # inside the rank-zero guard below would leave rank zero waiting on a collective the
+        # other ranks never join, which deadlocks DDP.
+        log_dir = trainer.log_dir
+        if not trainer.is_global_zero or log_dir is None:
             return
-        torch.save(pl_module.model.state_dict(), os.path.join(trainer.log_dir, filename))
+        torch.save(pl_module.model.state_dict(), os.path.join(log_dir, filename))
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch + 1
