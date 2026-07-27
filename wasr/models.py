@@ -4,7 +4,7 @@ import torch
 from torch import nn
 import torchvision
 from torchvision.models import segmentation
-from torchvision.models.resnet import resnet101, resnet50, resnet18
+from torchvision.models.resnet import resnet101, resnet50, resnet34, resnet18
 from torch.hub import load_state_dict_from_url
 
 from .decoders import *
@@ -12,7 +12,7 @@ from .utils import IntermediateLayerGetter
 
 model_list = [
     'wasr_resnet101', 'wasr_resnet101_imu', 'wasr_resnet50', 'wasr_resnet50_imu', 'deeplab', 
-    'wasr_resnet18_imu', 'ewasr_resnet18', 'ewasr_resnet18_imu'
+    'wasr_resnet18_imu', 'ewasr_resnet18', 'ewasr_resnet18_imu', 'ewasr_resnet34'
 ]
     
 model_urls = {
@@ -196,14 +196,15 @@ def wasr_deeplabv2_resnet18(num_classes=3, imu=True):
 
 def ewasr(num_classes, imu, backbone, **kwargs):
 
-    if backbone == "resnet18":
-        bb = resnet18(pretrained=True)
+    if backbone in ("resnet18", "resnet34"):
+        bb = resnet18(pretrained=True) if backbone == "resnet18" else resnet34(pretrained=True)
         return_layers = {
             'layer4': 'out',
             'layer1': 'skip1',
             'layer2': 'skip2',
             'layer3': 'aux'
         }
+        # both are BasicBlock (expansion=1), so stage widths are identical and the decoder is unchanged
         ch = 512
         bb = IntermediateLayerGetter(bb, return_layers=return_layers)
     else:
