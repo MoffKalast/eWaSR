@@ -25,6 +25,8 @@ OUTPUT_DIR = 'output'
 PRETRAINED_DEEPLAB = True
 PRECISION = 32
 MODEL = "ewasr_resnet18"
+EXPORT_EVERY = 10
+BACKBONE_WEIGHTS = None
 MONITOR_VAR = 'val/loss'
 MONITOR_VAR_MODE = 'min'
 
@@ -67,6 +69,10 @@ def get_arguments(input_args=None):
                         help="Path to the pretrained weights to be used.")
     parser.add_argument("--model", type=str, choices=models.model_list, default=MODEL,
                         help="Which model architecture to use for training.")
+    parser.add_argument("--backbone_weights", type=str, default=BACKBONE_WEIGHTS,
+                        help="timm pretrained tag for the backbone, e.g. a1_in1k. Uses torchvision weights if unset.")
+    parser.add_argument("--export_every", type=int, default=EXPORT_EVERY,
+                        help="Export a standalone .pth every n epochs (0 disables).")
     parser.add_argument("--monitor_metric", type=str, default=MONITOR_VAR,
                         help="Validation metric to monitor for early stopping and best model saving.")
     parser.add_argument("--monitor_metric_mode", type=str, default=MONITOR_VAR_MODE, choices=['min', 'max'],
@@ -109,7 +115,7 @@ def train_wasr(args):
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers)
 
-    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project)
+    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights)
 
     if args.pretrained_weights is not None:
         print(f"Loading weights from: {args.pretrained_weights}")
@@ -122,14 +128,15 @@ def train_wasr(args):
     logger = pl_loggers.TensorBoardLogger(logs_path, args.model_name)
     logger.log_hyperparams(args)
 
-    callbacks = []
+    callbacks = [ModelExporter(every_n_epochs=args.export_every), LearningRateMonitor(logging_interval='step')]
     if args.validation:
         # Val: Early stopping and best model saving
         if args.patience is not None:
             callbacks.append(EarlyStopping(monitor=args.monitor_metric, patience=args.patience, mode=args.monitor_metric_mode))
         callbacks.append(ModelCheckpoint(save_last=True, save_top_k=1, monitor=args.monitor_metric, mode=args.monitor_metric_mode))
-        callbacks.append(LearningRateMonitor(logging_interval='step'))
-        callbacks.append(ModelExporter())
+    else:
+        # No metric to rank on, but a resumable checkpoint is still wanted for --resume_from
+        callbacks.append(ModelCheckpoint(save_last=True))
 
     devices = args.gpus
     if isinstance(devices, str) and devices.isdigit():

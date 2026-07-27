@@ -194,10 +194,23 @@ def wasr_deeplabv2_resnet18(num_classes=3, imu=True):
     return model
 
 
+def resnet_backbone(name, weights_tag=None):
+    ctor = {'resnet18': resnet18, 'resnet34': resnet34}[name]
+    if weights_tag is None:
+        return ctor(pretrained=True)
+
+    import timm
+    # timm's ResNet-B state dict is key- and shape-identical to torchvision's for resnet18/34,
+    # so the weights transfer directly and downstream checkpoints stay torchvision-loadable.
+    backbone = ctor(pretrained=False)
+    backbone.load_state_dict(timm.create_model('%s.%s' % (name, weights_tag), pretrained=True).state_dict())
+    return backbone
+
+
 def ewasr(num_classes, imu, backbone, **kwargs):
 
     if backbone in ("resnet18", "resnet34"):
-        bb = resnet18(pretrained=True) if backbone == "resnet18" else resnet34(pretrained=True)
+        bb = resnet_backbone(backbone, kwargs.get("backbone_weights"))
         return_layers = {
             'layer4': 'out',
             'layer1': 'skip1',

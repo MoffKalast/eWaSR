@@ -16,10 +16,24 @@ def load_weights(path):
     return state_dict
 
 class ModelExporter(pl.Callback):
-    """Exports model weights at the end of the training."""
+    """Exports model weights at the end of the training and optionally every n epochs."""
+    def __init__(self, every_n_epochs=0):
+        super().__init__()
+        self.every_n_epochs = every_n_epochs
+
+    def _export(self, trainer, pl_module, filename):
+        # log_dir is only meaningful on rank zero, and only one rank should write
+        if not trainer.is_global_zero or trainer.log_dir is None:
+            return
+        torch.save(pl_module.model.state_dict(), os.path.join(trainer.log_dir, filename))
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        epoch = trainer.current_epoch + 1
+        if self.every_n_epochs > 0 and epoch % self.every_n_epochs == 0:
+            self._export(trainer, pl_module, 'weights_epoch%03d.pth' % epoch)
+
     def on_fit_end(self, trainer, pl_module):
-        export_path = os.path.join(trainer.log_dir, 'weights.pth')
-        torch.save(pl_module.model.state_dict(), export_path)
+        self._export(trainer, pl_module, 'weights.pth')
 
 class IntermediateLayerGetter(nn.ModuleDict):
     """
