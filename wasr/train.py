@@ -15,6 +15,10 @@ WEIGHT_DECAY = 1e-6
 LR_DECAY_POW = 0.9
 FOCAL_LOSS_SCALE = 'labels'
 SL_LAMBDA = 0.01
+SL_ISOLATION_KERNEL = 9
+SL_CLIP = 100.0
+SL_MIN_SAMPLES = 0.0
+SL_ISOLATION_POWER = 2.0
 
 class LitModel(pl.LightningModule):
     """ Pytorch Lightning wrapper for a model, ready for distributed training. """
@@ -38,6 +42,14 @@ class LitModel(pl.LightningModule):
         parser.add_argument("--no_separation_loss", action='store_true', help="Disable separation loss.")
         parser.add_argument("--separation_loss_lambda", default=SL_LAMBDA, type=float,
                             help="The separation loss lambda (weight).")
+        parser.add_argument("--separation_loss_kernel", default=SL_ISOLATION_KERNEL, type=int,
+                            help="Neighbourhood size for obstacle isolation weighting in the separation loss, 1 to disable.")
+        parser.add_argument("--separation_loss_clip", default=SL_CLIP, type=float,
+                            help="Per-channel ceiling on the separation loss ratio.")
+        parser.add_argument("--separation_loss_power", default=SL_ISOLATION_POWER, type=float,
+                            help="Exponent on the inverse local obstacle density. >1 pushes harder toward small obstacles.")
+        parser.add_argument("--separation_loss_min_samples", default=SL_MIN_SAMPLES, type=float,
+                            help="Minimum per-image water and obstacle coverage, in feature cells, for an image to contribute.")
         parser.add_argument("--mixer", type=str, default="CCCCSS", help="Token mixers in feature mixer.")
         #parser.add_argument("-l", "--transformer_blocks", type=int, default=6, help="Number of transformer blocks in TopFormer")
         #parser.add_argument("--skip", type=str, default=None, choices=[None, 'arm', 'sarm'], help="Use 2 transformer blocks on SKIP connection")
@@ -62,6 +74,10 @@ class LitModel(pl.LightningModule):
         self.focal_loss_scale = args.focal_loss_scale
         self.separation_loss = not args.no_separation_loss
         self.separation_loss_lambda = args.separation_loss_lambda
+        self.separation_loss_kernel = args.separation_loss_kernel
+        self.separation_loss_clip = args.separation_loss_clip
+        self.separation_loss_min_samples = args.separation_loss_min_samples
+        self.separation_loss_power = args.separation_loss_power
 
         # Metrics
         self.val_accuracy = PixelAccuracy(num_classes)
@@ -81,9 +97,14 @@ class LitModel(pl.LightningModule):
         fl = focal_loss(out['out'], labels['segmentation'], target_scale=self.focal_loss_scale)
 
         if self.separation_loss:
-            separation_loss = water_obstacle_separation_loss(out['aux'], labels['segmentation'])
+            separation_loss, separation_skipped = water_obstacle_separation_loss(
+                out['aux'], labels['segmentation'],
+                isolation_kernel=self.separation_loss_kernel,
+                isolation_power=self.separation_loss_power,
+                clip=self.separation_loss_clip,
+                min_samples=self.separation_loss_min_samples)
         else:
-            separation_loss = torch.tensor(0.0)
+            separation_loss, separation_skipped = torch.tensor(0.0), 0.0
 
         separation_loss = self.separation_loss_lambda * separation_loss
         loss = fl + separation_loss
@@ -92,6 +113,9 @@ class LitModel(pl.LightningModule):
         self.log('train/loss', loss.item())
         self.log('train/focal_loss', fl.item())
         self.log('train/separation_loss', separation_loss.item())
+        # Fraction of the batch with too little water or obstacle coverage to constrain. If this sits
+        # high the separation loss is mostly a no-op and lambda sweeps will look flat.
+        self.log('train/separation_skipped', separation_skipped)
 
         return loss
 

@@ -27,6 +27,7 @@ PRECISION = 32
 MODEL = "ewasr_resnet18"
 EXPORT_EVERY = 10
 BACKBONE_WEIGHTS = None
+DECODER_CH = "512"
 MONITOR_VAR = 'val/loss'
 MONITOR_VAR_MODE = 'min'
 
@@ -69,6 +70,9 @@ def get_arguments(input_args=None):
                         help="Path to the pretrained weights to be used.")
     parser.add_argument("--model", type=str, choices=models.model_list, default=MODEL,
                         help="Which model architecture to use for training.")
+    parser.add_argument("--decoder_ch", type=str, default=DECODER_CH,
+                        help="Decoder width. An int sets the widest stage and halves from there, "
+                             "'native' keeps the backbone widths (much more expensive on ResNet-50).")
     parser.add_argument("--backbone_weights", type=str, default=BACKBONE_WEIGHTS,
                         help="timm pretrained tag for the backbone, e.g. a1_in1k. Uses torchvision weights if unset.")
     parser.add_argument("--export_every", type=int, default=EXPORT_EVERY,
@@ -115,7 +119,7 @@ def train_wasr(args):
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers)
 
-    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights)
+    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, decoder_ch=args.decoder_ch)
 
     if args.pretrained_weights is not None:
         print(f"Loading weights from: {args.pretrained_weights}")

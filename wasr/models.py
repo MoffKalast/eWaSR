@@ -12,7 +12,7 @@ from .utils import IntermediateLayerGetter
 
 model_list = [
     'wasr_resnet101', 'wasr_resnet101_imu', 'wasr_resnet50', 'wasr_resnet50_imu', 'deeplab', 
-    'wasr_resnet18_imu', 'ewasr_resnet18', 'ewasr_resnet18_imu', 'ewasr_resnet34'
+    'wasr_resnet18_imu', 'ewasr_resnet18', 'ewasr_resnet18_imu', 'ewasr_resnet34', 'ewasr_resnet50'
 ]
     
 model_urls = {
@@ -211,9 +211,13 @@ backbone_weight_urls = {
 }
 
 def resnet_backbone(name, weights_tag=None):
-    ctor = {'resnet18': resnet18, 'resnet34': resnet34}[name]
+    ctor = {'resnet18': resnet18, 'resnet34': resnet34, 'resnet50': resnet50}[name]
     if weights_tag is None:
         return ctor(pretrained=True)
+
+    if name not in backbone_weight_urls:
+        raise ValueError('No weight tags registered for %s, use the torchvision weights by omitting '
+                         '--backbone_weights, or add URLs to backbone_weight_urls.' % name)
 
     urls = backbone_weight_urls[name]
     if weights_tag not in urls:
@@ -226,7 +230,7 @@ def resnet_backbone(name, weights_tag=None):
 
 def ewasr(num_classes, imu, backbone, **kwargs):
 
-    if backbone in ("resnet18", "resnet34"):
+    if backbone in ("resnet18", "resnet34", "resnet50"):
         bb = resnet_backbone(backbone, kwargs.get("backbone_weights"))
         return_layers = {
             'layer4': 'out',
@@ -234,17 +238,29 @@ def ewasr(num_classes, imu, backbone, **kwargs):
             'layer2': 'skip2',
             'layer3': 'aux'
         }
-        # both are BasicBlock (expansion=1), so stage widths are identical and the decoder is unchanged
-        ch = 512
+        # BasicBlock backbones have expansion 1, Bottleneck backbones (ResNet-50+) have expansion 4.
+        # Strides are identical in both cases, so only the widths change.
+        expansion = 4 if backbone == "resnet50" else 1
+        in_ch = [512 * expansion, 256 * expansion, 128 * expansion, 64 * expansion]
         bb = IntermediateLayerGetter(bb, return_layers=return_layers)
     else:
         raise ValueError(f"Backbone {backbone} is not supported!")
 
+    # "native" keeps the backbone widths, an int sets the widest decoder stage and halves from there.
+    decoder_ch = kwargs.get("decoder_ch")
+    if decoder_ch is None or decoder_ch == "512":
+        decoder_ch = 512
+    elif decoder_ch == "native":
+        decoder_ch = in_ch
+    else:
+        decoder_ch = int(decoder_ch)
+
     decoder = EWaSRDecoder(
-        num_classes=3,
-        ch= ch, #512 if kwargs.get("ch") is None else kwargs["ch"], 
-        L=6 if kwargs.get("L") is None else kwargs["L"], 
-        imu = imu,
+        num_classes=num_classes,
+        ch=decoder_ch,
+        in_ch=in_ch,
+        L=6 if kwargs.get("L") is None else kwargs["L"],
+        imu=imu,
         mixer="CCCCSS" if kwargs.get("mixer") is None else kwargs["mixer"],
         ch_sim=256 if kwargs.get("ch_sim") is None else kwargs["ch_sim"],
         enricher="SS" if kwargs.get("enricher") is None else kwargs["enricher"],

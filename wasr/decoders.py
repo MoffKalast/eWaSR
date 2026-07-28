@@ -143,19 +143,24 @@ def get_token_mixer(letter):
 
 class EWaSRDecoder(nn.Module):
     
-    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False):
+    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False, in_ch=None):
         
         super(EWaSRDecoder, self).__init__()
         
-        self.project = project
-        self.ch = [ch, ch//2, ch//4, ch//8] if isinstance(ch, int) else ch
+        base_ch = [ch, ch//2, ch//4, ch//8] if isinstance(ch, int) else list(ch)
+        self.ch = [c // 2 for c in base_ch] if project else list(base_ch)
+
+        # Backbone stage widths. Bottleneck backbones (ResNet-50+) are 4x wider than BasicBlock ones,
+        # and the metaformer MLPs are quadratic in sum(self.ch), so feeding those widths in natively
+        # costs ~10x the decoder. Projecting down keeps the decoder identical across backbones.
+        in_ch = list(base_ch) if in_ch is None else list(in_ch)
+        self.project = in_ch != self.ch
 
         if self.project:
-            self.convs_project1 = nn.Conv2d(self.ch[0], self.ch[0] // 2, 1)
-            self.convs_project2 = nn.Conv2d(self.ch[1], self.ch[1] // 2, 1)
-            self.convs_project3 = nn.Conv2d(self.ch[2], self.ch[2] // 2, 1)
-            self.convs_project4 = nn.Conv2d(self.ch[3], self.ch[3] // 2, 1)
-            self.ch = [ch // 2 for ch in self.ch]
+            self.convs_project1 = nn.Conv2d(in_ch[0], self.ch[0], 1)
+            self.convs_project2 = nn.Conv2d(in_ch[1], self.ch[1], 1)
+            self.convs_project3 = nn.Conv2d(in_ch[2], self.ch[2], 1)
+            self.convs_project4 = nn.Conv2d(in_ch[3], self.ch[3], 1)
 
         self.imu = imu
         self.pool_feats = PyramidPoolAgg(2)        
