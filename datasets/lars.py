@@ -20,6 +20,21 @@ def load_manifest(path):
 		return json.load(f)
 
 
+def resize_filter(src_width, dst_width):
+	return Image.BOX if dst_width <= src_width else Image.BICUBIC
+
+
+def crop_box(width, src_height, dst_height, anchor):
+	if anchor == 'top':
+		top = 0
+	elif anchor == 'bottom':
+		top = src_height - dst_height
+	else:
+		top = (src_height - dst_height) // 2
+
+	return (0, top, width, top + dst_height)
+
+
 def one_hot_mask(class_ids):
 	"""3-class one-hot (0=obstacle, 1=water, 2=sky). Any other value (255 void) maps to all-zero, which every loss and metric treats as ignore."""
 	return np.stack([class_ids == 0, class_ids == 1, class_ids == 2], axis=-1).astype(np.float32)
@@ -36,6 +51,7 @@ class LaRSDataset(torch.utils.data.Dataset):
 		manifest = load_manifest(manifest_path)
 		self.samples = manifest['samples']
 		self.buckets = [tuple(b) for b in manifest['buckets']]
+		self.crop_anchor = manifest.get('crop_anchor', 'center')
 		self.transform = transform
 		self.normalize_t = normalize_t
 		self.include_original = include_original
@@ -52,8 +68,18 @@ class LaRSDataset(torch.utils.data.Dataset):
 		width, height = size
 		sample = self.samples[idx]
 
-		img = Image.open(sample['image']).convert('RGB').resize((width, height), Image.BOX)
-		mask = Image.open(sample['mask']).resize((width, height), Image.NEAREST)
+		resize_width, resize_height = sample.get('resize', (width, height))
+
+		img = Image.open(sample['image']).convert('RGB')
+		mask = Image.open(sample['mask'])
+
+		img = img.resize((resize_width, resize_height), resize_filter(img.size[0], resize_width))
+		mask = mask.resize((resize_width, resize_height), Image.NEAREST)
+
+		if (resize_width, resize_height) != (width, height):
+			box = crop_box(width, resize_height, height, self.crop_anchor)
+			img = img.crop(box)
+			mask = mask.crop(box)
 
 		img = np.array(img)
 		img_original = img
