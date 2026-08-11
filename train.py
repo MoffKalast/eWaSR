@@ -19,6 +19,7 @@ NUM_CLASSES = 3
 PATIENCE = None
 LOG_STEPS = 20
 NUM_WORKERS = 8
+PREFETCH_FACTOR = 2
 NUM_GPUS = 1 # All visible GPUs
 RANDOM_SEED = None
 OUTPUT_DIR = 'output'
@@ -57,6 +58,8 @@ def get_arguments(input_args=None):
                         help="Number of gpus (or GPU ids) used for training.")
     parser.add_argument("--workers", type=int, default=NUM_WORKERS,
                         help="Number of workers used for data loading.")
+    parser.add_argument("--prefetch_factor", type=int, default=PREFETCH_FACTOR,
+                        help="Batches prefetched per worker. Lowering this reduces /dev/shm usage, which scales as workers * prefetch_factor * batch_size.")
     parser.add_argument("--random_seed", type=int, default=RANDOM_SEED,
                         help="Random seed to have reproducible results.")
     parser.add_argument("--pretrained", type=bool, default=PRETRAINED_DEEPLAB,
@@ -105,15 +108,17 @@ def train_wasr(args):
     if not args.no_augmentation:
         transform = get_augmentation_transform()
 
+    prefetch_factor = args.prefetch_factor if args.workers > 0 else None
+
     train_ds = LaRSDataset(args.train_config, transform=transform, normalize_t=normalize_t)
     train_sampler = ResolutionBatchSampler(train_ds.sample_sizes(), args.batch_size, shuffle=True, drop_last=True, seed=args.random_seed)
-    train_dl = DataLoader(train_ds, batch_sampler=train_sampler, num_workers=args.workers)
+    train_dl = DataLoader(train_ds, batch_sampler=train_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
     val_dl = None
     if args.validation:
         val_ds = LaRSDataset(args.val_config, normalize_t=normalize_t, include_original=True)
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
-        val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers)
+        val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
     model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights)
 
