@@ -319,17 +319,49 @@ class SIM(nn.Module):
 
 class SegHead(nn.Module):
     
-    def __init__(self, ch, num_classes):
+    def __init__(self, ch, num_classes, ch_mid=None):
         
         super(SegHead, self).__init__()
         
-        self.conv = nn.Conv2d(ch, ch, 1)
-        self.bn = nn.BatchNorm2d(ch)
-        self.relu = nn.ReLU6(ch)
-        self.conv1 = nn.Conv2d(ch, num_classes, 1)
+        ch_mid = ch if ch_mid is None else ch_mid
+        
+        self.conv = nn.Conv2d(ch, ch_mid, 1)
+        self.bn = nn.BatchNorm2d(ch_mid)
+        self.relu = nn.ReLU6(ch_mid)
+        self.conv1 = nn.Conv2d(ch_mid, num_classes, 1)
         
     def forward(self, x):
         
         x = self.relu(self.bn(self.conv(x)))
         x = self.conv1(x)
         return x
+
+class LaplacianPyramid(nn.Module):
+
+	def __init__(self):
+
+		super(LaplacianPyramid, self).__init__()
+
+		k = torch.tensor([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+		self.register_buffer('kernel_h', k.view(1, 1, 1, 5))
+		self.register_buffer('kernel_v', k.view(1, 1, 5, 1))
+
+	def blur(self, x):
+
+		c = x.size(1)
+		x = nn.functional.conv2d(x, self.kernel_h.expand(c, 1, 1, 5).to(x.dtype), padding=(0, 2), groups=c)
+		x = nn.functional.conv2d(x, self.kernel_v.expand(c, 1, 5, 1).to(x.dtype), padding=(2, 0), groups=c)
+
+		return x
+
+	def down(self, x):
+
+		return self.blur(x)[:, :, ::2, ::2]
+
+	def forward(self, image):
+
+		g1 = self.down(image)
+		g2 = self.down(g1)
+		up = nn.functional.interpolate(g2, size=g1.shape[-2:], mode='bilinear', align_corners=False)
+
+		return g1 - up

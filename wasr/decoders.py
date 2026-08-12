@@ -3,7 +3,7 @@ from torch import nn
 from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 import timm
-from .layers import AttentionRefinementModule, FeatureFusionModule, ASPPv2, Spade, C3Blk, ResBlk, SPP, Conv, SpatialAttentionRefinementModule, PyramidPoolAgg, SIM, SegHead
+from .layers import AttentionRefinementModule, FeatureFusionModule, ASPPv2, Spade, C3Blk, ResBlk, SPP, Conv, SpatialAttentionRefinementModule, PyramidPoolAgg, SIM, SegHead, LaplacianPyramid
 from .metaformer import *
 
 class NoIMUDecoder(nn.Module):
@@ -143,7 +143,7 @@ def get_token_mixer(letter):
 
 class EWaSRDecoder(nn.Module):
     
-    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False):
+    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False, pyramid=False, ch_stem=64, ch_head=64):
         
         super(EWaSRDecoder, self).__init__()
         
@@ -207,10 +207,18 @@ class EWaSRDecoder(nn.Module):
         self.sim4 = SIM(self.ch[3], ch_sim)
         
         head_in = ch_sim+1 if self.imu else ch_sim
-        self.seg_head = SegHead(head_in, num_classes)
+
+        self.pyramid = LaplacianPyramid() if pyramid else None
+        self.needs_image = pyramid
+
+        if self.pyramid is not None:
+            head_in = head_in + ch_stem + 3
+            self.seg_head = SegHead(head_in, num_classes, ch_mid=ch_head)
+        else:
+            self.seg_head = SegHead(head_in, num_classes)
 
         
-    def forward(self, x, aux, skip2, skip1, imu_mask):
+    def forward(self, x, aux, skip2, skip1, imu_mask, skip0=None, image=None):
 
         if self.project:
             x = self.convs_project1(x)
@@ -241,6 +249,10 @@ class EWaSRDecoder(nn.Module):
         if self.imu: 
             imu_mask = TF.resize(imu_mask, (x.size(2), x.size(3)), InterpolationMode.NEAREST)
             x = torch.cat([x, imu_mask], dim=1)
+
+        if self.pyramid is not None:
+            x = nn.functional.interpolate(x, size=skip0.shape[-2:], mode='bilinear', align_corners=False)
+            x = torch.cat([x, skip0, self.pyramid(image)], dim=1)
         
         x = self.seg_head(x)
         
