@@ -4,17 +4,13 @@ from collections import defaultdict
 from pathlib import Path
 from PIL import Image
 
-
 DOWNSCALE_FACTORS = (1, 2, 4, 8)
-
 DEFAULT_MIN_WIDTH = 256
-DEFAULT_MAX_WIDTH = 640
-
+DEFAULT_MAX_WIDTH = 1000
 
 def read_image_list(path):
 	with open(path, 'r') as file:
 		return [line.strip() for line in file if line.strip()]
-
 
 def candidate_sizes(width, height, min_width, max_width):
 	"""Integer downscales of a native size whose width lands in [min_width, max_width]."""
@@ -25,7 +21,6 @@ def candidate_sizes(width, height, min_width, max_width):
 			sizes.append((w, h))
 	return sizes
 
-
 def fixed_width_plan(width, height, target_width, height_multiple):
 	exact_height = max(1, round(height * target_width / width))
 	bucket_height = (exact_height // height_multiple) * height_multiple
@@ -34,7 +29,6 @@ def fixed_width_plan(width, height, target_width, height_multiple):
 		return None
 
 	return (target_width, exact_height), (target_width, bucket_height)
-
 
 def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext, batch_size, mode, min_width, max_width, target_width, height_multiple):
 	samples = []
@@ -116,7 +110,6 @@ def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext
 		'bucket_counts': {f'{w}x{h}': bucket_counts[(w, h)] for (w, h) in sorted(kept_buckets, key=lambda x: (-x[0], -x[1]))}
 	}
 	return manifest, stats
-
 
 def main():
 	parser = argparse.ArgumentParser(description='Build a resolution-bucket manifest for variable-resolution LaRS training.')

@@ -5,7 +5,7 @@ Pillow
 numpy
 tqdm
 timm==0.6.5
-albumentations
+albumentations>=2.0
 tensorboard
 blobconverter
 onnx
