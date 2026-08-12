@@ -45,6 +45,7 @@ class LitModel(pl.LightningModule):
         parser.add_argument("--project", action='store_true', help="Project encoder features to less channels.")
         #parser.add_argument("--ablation", type=str, default=None, choices=["noarm1","noarm2", "noaspp", "noaspp1", "noffm", "noffm1"])
         parser.add_argument("--enricher", type=str, default="SS", help="Token mixers in long-skip feature enricher.")
+        parser.add_argument("--refine", action='store_true', help="Add a full-resolution Laplacian-guided refinement head after the segmentation head.")
     
         return parser
 

@@ -61,14 +61,20 @@ class WaSR(nn.Module):
 
         self.backbone = backbone
         self.decoder = decoder
+        self.pass_image = getattr(decoder, 'needs_image', False)
 
     def forward(self, x):
 
-        features = self.backbone(x['image'])
+        image = x['image']
+        features = self.backbone(image)
 
         imu_mask = x['imu_mask'].float().unsqueeze(1) if self.imu else None
         aux = features['aux']
-        x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask)
+
+        if self.pass_image:
+            x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask, image)
+        else:
+            x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask)
 
         # Return segmentation map and aux feature map
         output = OrderedDict([
@@ -248,7 +254,8 @@ def ewasr(num_classes, imu, backbone, **kwargs):
         mixer="CCCCSS" if kwargs.get("mixer") is None else kwargs["mixer"],
         ch_sim=256 if kwargs.get("ch_sim") is None else kwargs["ch_sim"],
         enricher="SS" if kwargs.get("enricher") is None else kwargs["enricher"],
-        project=False if kwargs.get("project") is None else kwargs["project"]
+        project=False if kwargs.get("project") is None else kwargs["project"],
+        refine=False if kwargs.get("refine") is None else kwargs["refine"]
     )
 
     model = WaSR(bb, decoder, imu=imu)

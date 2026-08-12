@@ -333,3 +333,49 @@ class SegHead(nn.Module):
         x = self.relu(self.bn(self.conv(x)))
         x = self.conv1(x)
         return x
+
+class LaplacianRefinement(nn.Module):
+
+	def __init__(self, num_classes, ch=16):
+
+		super(LaplacianRefinement, self).__init__()
+
+		k = torch.tensor([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+		self.register_buffer('kernel_h', k.view(1, 1, 1, 5))
+		self.register_buffer('kernel_v', k.view(1, 1, 5, 1))
+
+		self.conv1 = nn.Conv2d(num_classes + 3, ch, 3, padding=1, bias=False)
+		self.bn1 = nn.BatchNorm2d(ch)
+		self.conv2 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
+		self.bn2 = nn.BatchNorm2d(ch)
+		self.relu = nn.ReLU(inplace=True)
+		self.conv_out = nn.Conv2d(ch, num_classes, 1)
+
+		nn.init.zeros_(self.conv_out.weight)
+		nn.init.zeros_(self.conv_out.bias)
+
+	def blur(self, x):
+
+		c = x.size(1)
+		x = nn.functional.conv2d(x, self.kernel_h.expand(c, 1, 1, 5).to(x.dtype), padding=(0, 2), groups=c)
+		x = nn.functional.conv2d(x, self.kernel_v.expand(c, 1, 5, 1).to(x.dtype), padding=(2, 0), groups=c)
+
+		return x
+
+	def laplacian(self, image):
+
+		blurred = self.blur(image)
+		down = blurred[:, :, ::2, ::2]
+		up = nn.functional.interpolate(down, size=image.shape[-2:], mode='bilinear', align_corners=False)
+
+		return image - up
+
+	def forward(self, logits, image):
+
+		logits = nn.functional.interpolate(logits, size=image.shape[-2:], mode='bilinear', align_corners=False)
+		l1 = self.laplacian(image)
+
+		x = self.relu(self.bn1(self.conv1(torch.cat([logits, l1], dim=1))))
+		x = self.relu(self.bn2(self.conv2(x)))
+
+		return logits + self.conv_out(x)

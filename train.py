@@ -120,7 +120,7 @@ def train_wasr(args):
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
-    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights)
+    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, refine=args.refine)
 
     if args.pretrained_weights is not None:
         print(f"Loading weights from: {args.pretrained_weights}")

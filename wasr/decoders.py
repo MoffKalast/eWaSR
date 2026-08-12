@@ -3,7 +3,7 @@ from torch import nn
 from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 import timm
-from .layers import AttentionRefinementModule, FeatureFusionModule, ASPPv2, Spade, C3Blk, ResBlk, SPP, Conv, SpatialAttentionRefinementModule, PyramidPoolAgg, SIM, SegHead
+from .layers import AttentionRefinementModule, FeatureFusionModule, ASPPv2, Spade, C3Blk, ResBlk, SPP, Conv, SpatialAttentionRefinementModule, PyramidPoolAgg, SIM, SegHead, LaplacianRefinement
 from .metaformer import *
 
 class NoIMUDecoder(nn.Module):
@@ -143,7 +143,7 @@ def get_token_mixer(letter):
 
 class EWaSRDecoder(nn.Module):
     
-    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False):
+    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False, refine=False):
         
         super(EWaSRDecoder, self).__init__()
         
@@ -209,8 +209,11 @@ class EWaSRDecoder(nn.Module):
         head_in = ch_sim+1 if self.imu else ch_sim
         self.seg_head = SegHead(head_in, num_classes)
 
+        self.needs_image = refine
+        self.refine = LaplacianRefinement(num_classes) if refine else None
+
         
-    def forward(self, x, aux, skip2, skip1, imu_mask):
+    def forward(self, x, aux, skip2, skip1, imu_mask, image=None):
 
         if self.project:
             x = self.convs_project1(x)
@@ -243,5 +246,8 @@ class EWaSRDecoder(nn.Module):
             x = torch.cat([x, imu_mask], dim=1)
         
         x = self.seg_head(x)
+
+        if self.refine is not None:
+            x = self.refine(x, image)
         
         return x

@@ -34,6 +34,7 @@ def get_arguments():
     parser.add_argument("--mixer", type=str, default="CCCCSS", help="Token mixers in feature mixer.")
     parser.add_argument("--project", action='store_true', help="Project encoder features to less channels.")
     parser.add_argument("--enricher", type=str, default="SS", help="Token mixers in long-skip feature enricher.")
+    parser.add_argument("--refine", action='store_true', help="Model was trained with the Laplacian refinement head.")
  
     return parser.parse_args()
 
@@ -44,7 +45,7 @@ def export(args):
     onnx_path = os.path.join(args.output_dir, f"{args.architecture}.onnx")
 
     # load model
-    model = M.get_model(args.architecture, num_classes=args.num_classes, pretrained=False, mixer=args.mixer, enricher=args.enricher, project=args.project)
+    model = M.get_model(args.architecture, num_classes=args.num_classes, pretrained=False, mixer=args.mixer, enricher=args.enricher, project=args.project, refine=args.refine)
     weights = load_weights(args.weights_file)
     model.load_state_dict(weights)
 
