@@ -7,7 +7,7 @@ def get_augmentation_transform():
         A.RandomGamma(p=1, gamma_limit=(70,120))], p=0.5)
 
     noise_transform = A.Compose([
-        A.GaussNoise(p=0.5),
+        A.GaussNoise(std_range=(0.012, 0.028), p=0.5),
         A.ISONoise(p=0.5)], p=0.3)
 
     transform = A.Compose([
