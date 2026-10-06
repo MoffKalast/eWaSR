@@ -42,3 +42,24 @@ class ClassIoU(Metric):
 
     def compute(self):
         return self.intersection.float() / self.union.clip(min=1)
+
+class MeanIoU(Metric):
+    def __init__(self, num_classes, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.add_state("intersection", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum")
+        self.add_state("union", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum")
+        self.num_classes = num_classes
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        assert preds.shape == target.shape
+
+        valid_mask = target < self.num_classes
+        for c in range(self.num_classes):
+            preds_mask = (preds == c) & valid_mask
+            target_mask = target == c
+            self.intersection[c] += torch.sum(preds_mask & target_mask)
+            self.union[c] += torch.sum(preds_mask | target_mask)
+
+    def compute(self):
+        return (self.intersection.float() / self.union.clip(min=1)).mean()

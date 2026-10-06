@@ -109,23 +109,10 @@ class LaRSDataset(torch.utils.data.Dataset):
 
 
 class ResolutionBatchSampler(torch.utils.data.Sampler):
-	"""Yields batches of (index, size) pairs, one resolution per batch.
-
-	Every epoch each sample is assigned one of its candidate buckets at random
-	(stochastic multiplicity of 1, re-rolled per epoch). Because bigger buckets
-	receive more samples, batch counts are naturally proportional to image count.
-	The trailing partial batch of each bucket is dropped.
-
-	Under DDP the full batch list is built identically on every rank (same seed
-	and epoch) and then sharded, so ranks see disjoint data and an equal batch
-	count. Trainer must be constructed with use_distributed_sampler=False so
-	Lightning does not try to inject its own sampler.
-	"""
-	def __init__(self, sample_sizes, batch_size, shuffle=True, drop_last=True, seed=0):
+	def __init__(self, sample_sizes, batch_size, train=True, seed=0):
 		self.sample_sizes = sample_sizes
 		self.batch_size = batch_size
-		self.shuffle = shuffle
-		self.drop_last = drop_last
+		self.train = train
 		self.seed = seed if seed is not None else 0
 		self.epoch = 0
 
@@ -134,39 +121,52 @@ class ResolutionBatchSampler(torch.utils.data.Sampler):
 			return dist.get_world_size(), dist.get_rank()
 		return 1, 0
 
-	def _build_batches(self, seed):
+	def _num_train_batches(self):
+		world, _ = self._world_rank()
+		buckets = {size for sizes in self.sample_sizes for size in sizes}
+		return (len(self.sample_sizes) // self.batch_size - len(buckets)) // world
+
+	def _train_batches(self, seed):
 		rng = random.Random(seed)
 
 		by_bucket = {}
 		for idx, sizes in enumerate(self.sample_sizes):
-			chosen = sizes[rng.randrange(len(sizes))] if len(sizes) > 1 else sizes[0]
-			by_bucket.setdefault(chosen, []).append(idx)
+			by_bucket.setdefault(rng.choice(sizes), []).append(idx)
 
 		batches = []
 		for size, indices in by_bucket.items():
-			if self.shuffle:
-				rng.shuffle(indices)
-			limit = len(indices) - (len(indices) % self.batch_size) if self.drop_last else len(indices)
-			for start in range(0, limit, self.batch_size):
-				chunk = indices[start:start + self.batch_size]
-				batches.append([(i, size) for i in chunk])
+			rng.shuffle(indices)
+			for start in range(0, len(indices) - self.batch_size + 1, self.batch_size):
+				batches.append([(i, size) for i in indices[start:start + self.batch_size]])
 
-		if self.shuffle:
-			rng.shuffle(batches)
+		rng.shuffle(batches)
 
-		# Shard across DDP ranks. Trim to a multiple of world size first so every
-		# rank runs the same number of steps, otherwise DDP deadlocks.
 		world, rank = self._world_rank()
-		if world > 1:
-			batches = batches[:len(batches) - (len(batches) % world)]
-			batches = batches[rank::world]
+		return batches[:self._num_train_batches() * world][rank::world]
+
+	def _eval_batches(self):
+		by_bucket = {}
+		for idx, sizes in enumerate(self.sample_sizes):
+			for size in sizes:
+				by_bucket.setdefault(size, []).append(idx)
+
+		batches = []
+		for size, indices in by_bucket.items():
+			for start in range(0, len(indices), self.batch_size):
+				batches.append([(i, size) for i in indices[start:start + self.batch_size]])
 
 		return batches
 
 	def __iter__(self):
-		batches = self._build_batches(self.seed + self.epoch)
+		if not self.train:
+			return iter(self._eval_batches())
+
+		batches = self._train_batches(self.seed + self.epoch)
 		self.epoch += 1
 		return iter(batches)
 
 	def __len__(self):
-		return len(self._build_batches(self.seed + self.epoch))
+		if not self.train:
+			return len(self._eval_batches())
+
+		return self._num_train_batches()

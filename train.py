@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 
 
 import wasr.models as models
@@ -28,8 +28,8 @@ PRECISION = 32
 MODEL = "ewasr_resnet18"
 EXPORT_EVERY = 10
 BACKBONE_WEIGHTS = None
-MONITOR_VAR = 'val/loss'
-MONITOR_VAR_MODE = 'min'
+MONITOR_VAR = 'val/miou'
+MONITOR_VAR_MODE = 'max'
 
 
 
@@ -84,8 +84,6 @@ def get_arguments(input_args=None):
                         help="Disable on-the-fly image augmentation of the dataset.")
     parser.add_argument("--precision", default=PRECISION, type=int, choices=[16,32],
                         help="Floating point precision.")
-    parser.add_argument("--resume_from", type=str, default=None,
-                        help="Resume training from specified checkpoint.")
 
     parser = LitModel.add_argparse_args(parser)
 
@@ -111,13 +109,13 @@ def train_wasr(args):
     prefetch_factor = args.prefetch_factor if args.workers > 0 else None
 
     train_ds = LaRSDataset(args.train_config, transform=transform, normalize_t=normalize_t)
-    train_sampler = ResolutionBatchSampler(train_ds.sample_sizes(), args.batch_size, shuffle=True, drop_last=True, seed=args.random_seed)
+    train_sampler = ResolutionBatchSampler(train_ds.sample_sizes(), args.batch_size, train=True, seed=args.random_seed)
     train_dl = DataLoader(train_ds, batch_sampler=train_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
     val_dl = None
     if args.validation:
         val_ds = LaRSDataset(args.val_config, normalize_t=normalize_t, include_original=True)
-        val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, shuffle=False, drop_last=False, seed=args.random_seed)
+        val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, train=False)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
     model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, pyramid=args.pyramid)
@@ -127,21 +125,17 @@ def train_wasr(args):
         state_dict = load_weights(args.pretrained_weights)
         model.load_state_dict(state_dict)
 
-    model = LitModel(model, args.num_classes, args)
+    val_widths = sorted({w for w, h in val_ds.buckets}) if args.validation else ()
+    model = LitModel(model, args.num_classes, args, val_widths=val_widths)
 
     logs_path = os.path.join(args.output_dir, 'logs')
     logger = pl_loggers.TensorBoardLogger(logs_path, args.model_name)
     logger.log_hyperparams(args)
 
-    callbacks = [ModelExporter(every_n_epochs=args.export_every), LearningRateMonitor(logging_interval='step')]
-    if args.validation:
-        # Val: Early stopping and best model saving
-        if args.patience is not None:
-            callbacks.append(EarlyStopping(monitor=args.monitor_metric, patience=args.patience, mode=args.monitor_metric_mode))
-        callbacks.append(ModelCheckpoint(save_last=True, save_top_k=1, monitor=args.monitor_metric, mode=args.monitor_metric_mode))
-    else:
-        # No metric to rank on, but a resumable checkpoint is still wanted for --resume_from
-        callbacks.append(ModelCheckpoint(save_last=True))
+    monitor = args.monitor_metric if args.validation else None
+    callbacks = [ModelExporter(every_n_epochs=args.export_every, monitor=monitor, mode=args.monitor_metric_mode), LearningRateMonitor(logging_interval='step')]
+    if args.validation and args.patience is not None:
+        callbacks.append(EarlyStopping(monitor=args.monitor_metric, patience=args.patience, mode=args.monitor_metric_mode))
 
     devices = args.gpus
     if isinstance(devices, str) and devices.isdigit():
@@ -154,11 +148,12 @@ def train_wasr(args):
                          devices=devices,
                          max_epochs=args.epochs,
                          callbacks=callbacks,
+                         enable_checkpointing=False,
                          sync_batchnorm=True,
                          use_distributed_sampler=False,
                          log_every_n_steps=args.log_steps,
                          precision=precision)
-    trainer.fit(model, train_dl, val_dl, ckpt_path=args.resume_from)
+    trainer.fit(model, train_dl, val_dl)
 
 
 def main():
