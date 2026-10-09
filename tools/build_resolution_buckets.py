@@ -30,7 +30,7 @@ def fixed_width_plan(width, height, target_width, height_multiple):
 
 	return (target_width, exact_height), (target_width, bucket_height)
 
-def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext, batch_size, mode, min_width, max_width, target_width, height_multiple):
+def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_exts, batch_size, mode, min_width, max_width, target_width, height_multiple):
 	samples = []
 	bucket_counts = defaultdict(int)
 	missing = 0
@@ -44,9 +44,9 @@ def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext
 		mask_dir = split_dir / mask_subdir
 
 		for name in names:
-			img_path = image_dir / f'{name}{image_ext}'
+			img_path = next((p for p in (image_dir / f'{name}{ext}' for ext in image_exts) if p.exists()), None)
 			mask_path = mask_dir / f'{name}{mask_suffix}.png'
-			if not img_path.exists() or not mask_path.exists():
+			if img_path is None or not mask_path.exists():
 				missing += 1
 				continue
 
@@ -119,7 +119,7 @@ def main():
 	parser.add_argument('--image_subdir', type=str, default='images')
 	parser.add_argument('--mask_subdir', type=str, default='semantic_masks')
 	parser.add_argument('--mask_suffix', type=str, default='', help='Suffix appended to the basename before .png for masks (LaRS uses none, MaSTr uses "m").')
-	parser.add_argument('--image_ext', type=str, default='.jpg')
+	parser.add_argument('--image_ext', type=str, nargs='+', default=['.jpg', '.png'], help='Image extensions to look for, in order of preference when a name exists with several.')
 	parser.add_argument('--min_width', type=int, default=None, help=f'downscale mode only. Default {DEFAULT_MIN_WIDTH}.')
 	parser.add_argument('--max_width', type=int, default=None, help=f'downscale mode only. Default {DEFAULT_MAX_WIDTH}.')
 	parser.add_argument('--width', type=int, default=None, help='fixed_width mode only. Target width every image is rescaled to.')
