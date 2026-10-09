@@ -20,7 +20,7 @@ def get_augmentation_transform():
     return AlbumentationsTransform(transform)
 
 class AlbumentationsTransform(object):
-    def __init__(self, transform, image_feature='image', mask_features=['segmentation', 'imu_mask', 'objects', 'pa_similarity']):
+    def __init__(self, transform, image_feature='image', mask_features=['segmentation']):
         self.transform = transform
         self.image_feature = image_feature
         self.mask_features = mask_features

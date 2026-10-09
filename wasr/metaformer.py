@@ -1,9 +1,7 @@
 import torch
 import torch.nn as nn
-from torchvision.transforms import InterpolationMode
-import torchvision.transforms.functional as TF
-from timm.models.layers.helpers import to_2tuple
-from wasr.layers import AttentionRefinementModule
+from .layers import AttentionRefinementModule
+from .mit import DropPath
 
 
 class Mlp(nn.Module):
@@ -92,7 +90,7 @@ class ARMMixer(nn.Module):
     """
     def __init__(self, dim):
         super().__init__()
-        self.arm = AttentionRefinementModule(in_channels=dim, last_arm=False)
+        self.arm = AttentionRefinementModule(dim)
 
     def forward(self, x):
         return self.arm(x)
@@ -103,25 +101,19 @@ class SpatialAttentionMixer(nn.Module):
     Implementation of SpatialAttentionMixer.
     Input: tensor with shape [B, C, H, W]
     """
-    def __init__(self, kernel_size=3, imu=False, **kwargs):
+    def __init__(self, kernel_size=3, **kwargs):
         super(SpatialAttentionMixer, self).__init__()
-
-        self.imu = imu
 
         assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
         padding = kernel_size // 2
 
-        in_ch = 3 if self.imu else 2
-        self.conv = nn.Conv2d(in_ch, 1, kernel_size, padding=padding, bias=False)
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x, imu_mask=None):
+    def forward(self, x):
         avg_out = torch.mean(x, dim=1, keepdim=True)
         max_out, _ = torch.max(x, dim=1, keepdim=True)
-        if self.imu:
-            att = torch.cat([avg_out, max_out, imu_mask], dim=1)
-        else:
-            att = torch.cat([avg_out, max_out], dim=1)
+        att = torch.cat([avg_out, max_out], dim=1)
         att = self.conv(att)
         return self.sigmoid(att) * x
 
@@ -182,3 +174,12 @@ class MetaFormerBlock(nn.Module):
             x = x + self.drop_path(self.token_mixer(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
+
+
+TOKEN_MIXERS = {'A': Attention, 'P': Pooling, 'C': ARMMixer, 'S': SpatialAttentionMixer}
+
+def get_token_mixer(letter):
+    if letter not in TOKEN_MIXERS:
+        raise ValueError(f"Mixer {letter} not supported. Available: {', '.join(TOKEN_MIXERS)}")
+
+    return TOKEN_MIXERS[letter]

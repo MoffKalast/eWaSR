@@ -7,7 +7,8 @@ from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 
 
-import wasr.models as models
+from wasr.models import EWaSR
+from wasr.mit import VARIANTS, PRETRAINED_REPOS
 from wasr.train import LitModel
 from wasr.utils import ModelExporter, load_weights
 from datasets.lars import LaRSDataset, ResolutionBatchSampler
@@ -23,11 +24,10 @@ PREFETCH_FACTOR = 2
 NUM_GPUS = 1 # All visible GPUs
 RANDOM_SEED = None
 OUTPUT_DIR = 'output'
-PRETRAINED_DEEPLAB = True
 PRECISION = 32
-MODEL = "ewasr_resnet18"
+VARIANT = 'b0'
+PRETRAIN = 'ade'
 EXPORT_EVERY = 10
-BACKBONE_WEIGHTS = None
 MONITOR_VAR = 'val/miou'
 MONITOR_VAR_MODE = 'max'
 
@@ -39,7 +39,7 @@ def get_arguments(input_args=None):
     Returns:
       A list of parsed arguments.
     """
-    parser = argparse.ArgumentParser(description="DeepLab-ResNet Network", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description="eWaSR with a MiT encoder", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--train_config", type=str,
                         help="Path to the training dataset configuration.")
     parser.add_argument("--val_config", type=str,
@@ -62,18 +62,16 @@ def get_arguments(input_args=None):
                         help="Batches prefetched per worker. Lowering this reduces /dev/shm usage, which scales as workers * prefetch_factor * batch_size.")
     parser.add_argument("--random_seed", type=int, default=RANDOM_SEED,
                         help="Random seed to have reproducible results.")
-    parser.add_argument("--pretrained", type=bool, default=PRETRAINED_DEEPLAB,
-                        help="Use pretrained DeepLab weights.")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help="Directory where the output will be stored (models and logs)")
     parser.add_argument("--model_name", type=str, required=True,
                         help="Name of the model. Used to create model and log directories inside the output directory.")
     parser.add_argument("--pretrained_weights", type=str, default=None,
                         help="Path to the pretrained weights to be used.")
-    parser.add_argument("--model", type=str, choices=models.model_list, default=MODEL,
-                        help="Which model architecture to use for training.")
-    parser.add_argument("--backbone_weights", type=str, default=BACKBONE_WEIGHTS,
-                        help="timm pretrained tag for the backbone, e.g. a1_in1k. Uses torchvision weights if unset.")
+    parser.add_argument("--variant", type=str, choices=list(VARIANTS), default=VARIANT,
+                        help="MiT encoder size.")
+    parser.add_argument("--pretrain", type=str, choices=list(PRETRAINED_REPOS) + ['none'], default=PRETRAIN,
+                        help="Encoder initialization: ImageNet classification, or the encoder of SegFormer finetuned on ADE20K or Cityscapes.")
     parser.add_argument("--export_every", type=int, default=EXPORT_EVERY,
                         help="Export a standalone .pth every n epochs (0 disables).")
     parser.add_argument("--monitor_metric", type=str, default=MONITOR_VAR,
@@ -118,7 +116,8 @@ def train_wasr(args):
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, train=False)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
-    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, pyramid=args.pyramid)
+    pretrain = None if args.pretrain == 'none' else args.pretrain
+    model = EWaSR(args.variant, args.num_classes, pretrain, args.drop_path, args.ch_sim, args.mixer, args.enricher)
 
     if args.pretrained_weights is not None:
         print(f"Loading weights from: {args.pretrained_weights}")
