@@ -61,14 +61,20 @@ class WaSR(nn.Module):
 
         self.backbone = backbone
         self.decoder = decoder
+        self.pass_extra = getattr(decoder, 'needs_image', False)
 
     def forward(self, x):
 
-        features = self.backbone(x['image'])
+        image = x['image']
+        features = self.backbone(image)
 
         imu_mask = x['imu_mask'].float().unsqueeze(1) if self.imu else None
         aux = features['aux']
-        x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask)
+
+        if self.pass_extra:
+            x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask, features['skip0'], image)
+        else:
+            x = self.decoder(features['out'], features['aux'], features['skip2'], features['skip1'], imu_mask)
 
         # Return segmentation map and aux feature map
         output = OrderedDict([
@@ -226,6 +232,8 @@ def resnet_backbone(name, weights_tag=None):
 
 def ewasr(num_classes, imu, backbone, **kwargs):
 
+    pyramid = bool(kwargs.get("pyramid"))
+
     if backbone in ("resnet18", "resnet34"):
         bb = resnet_backbone(backbone, kwargs.get("backbone_weights"))
         return_layers = {
@@ -234,6 +242,10 @@ def ewasr(num_classes, imu, backbone, **kwargs):
             'layer2': 'skip2',
             'layer3': 'aux'
         }
+        # the stem relu is the last activation before maxpool, so it is the only half-resolution
+        # feature map the backbone exposes
+        if pyramid:
+            return_layers['relu'] = 'skip0'
         # both are BasicBlock (expansion=1), so stage widths are identical and the decoder is unchanged
         ch = 512
         bb = IntermediateLayerGetter(bb, return_layers=return_layers)
@@ -248,7 +260,8 @@ def ewasr(num_classes, imu, backbone, **kwargs):
         mixer="CCCCSS" if kwargs.get("mixer") is None else kwargs["mixer"],
         ch_sim=256 if kwargs.get("ch_sim") is None else kwargs["ch_sim"],
         enricher="SS" if kwargs.get("enricher") is None else kwargs["enricher"],
-        project=False if kwargs.get("project") is None else kwargs["project"]
+        project=False if kwargs.get("project") is None else kwargs["project"],
+        pyramid=pyramid
     )
 
     model = WaSR(bb, decoder, imu=imu)

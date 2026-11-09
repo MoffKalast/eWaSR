@@ -5,8 +5,8 @@ from pathlib import Path
 from PIL import Image
 
 DOWNSCALE_FACTORS = (1, 2, 4, 8)
-DEFAULT_MIN_WIDTH = 256
-DEFAULT_MAX_WIDTH = 1000
+DEFAULT_MIN_WIDTH = 320
+DEFAULT_MAX_WIDTH = 720
 
 def read_image_list(path):
 	with open(path, 'r') as file:
