@@ -17,8 +17,9 @@ def load_weights(path):
 
 class ModelExporter(pl.Callback):
     """Exports model weights at the end of the training and optionally every n epochs."""
-    def __init__(self, every_n_epochs=0, monitor=None, mode='min'):
+    def __init__(self, every_n_epochs=0, monitor=None, mode='min', metadata=None):
         super().__init__()
+        self.metadata = metadata or {}
         self.every_n_epochs = every_n_epochs
         self.monitor = monitor
         self.mode = mode
@@ -31,7 +32,7 @@ class ModelExporter(pl.Callback):
         log_dir = trainer.log_dir
         if not trainer.is_global_zero or log_dir is None:
             return
-        torch.save(pl_module.model.state_dict(), os.path.join(log_dir, filename))
+        torch.save({'model': pl_module.model.state_dict(), **self.metadata}, os.path.join(log_dir, filename))
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch + 1

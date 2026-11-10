@@ -292,10 +292,12 @@ class PyramidPoolAgg(nn.Module):
 
     
 class SIM(nn.Module):
-    def __init__(self, ch_in, ch_out):
+    def __init__(self, ch_in, ch_out, interp='nearest'):
         
         super(SIM, self).__init__()
         
+        self.interp = interp
+
         self.conv_lc = nn.Conv2d(ch_in, ch_out, 1)
         self.bn_lc = nn.BatchNorm2d(ch_out)
         
@@ -308,7 +310,7 @@ class SIM(nn.Module):
         
     def forward(self, lx, gx):
         
-        gx = TF.resize(gx, (lx.size(2), lx.size(3)), InterpolationMode.NEAREST)
+        gx = nn.functional.interpolate(gx, size=lx.shape[2:], mode=self.interp)
 
         lx = self.bn_lc(self.conv_lc(lx))
         multi = self.sigmoid_gc(self.bn_gc(self.conv_gc(gx)))

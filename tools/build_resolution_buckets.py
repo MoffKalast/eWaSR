@@ -7,10 +7,17 @@ from PIL import Image
 DOWNSCALE_FACTORS = (1, 2, 4, 8)
 DEFAULT_MIN_WIDTH = 320
 DEFAULT_MAX_WIDTH = 720
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
 
 def read_image_list(path):
 	with open(path, 'r') as file:
 		return [line.strip() for line in file if line.strip()]
+
+def index_images(image_dir):
+	if not image_dir.is_dir():
+		return {}
+
+	return {p.stem: p for p in image_dir.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS}
 
 def candidate_sizes(width, height, min_width, max_width):
 	"""Integer downscales of a native size whose width lands in [min_width, max_width]."""
@@ -30,7 +37,7 @@ def fixed_width_plan(width, height, target_width, height_multiple):
 
 	return (target_width, exact_height), (target_width, bucket_height)
 
-def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext, batch_size, mode, min_width, max_width, target_width, height_multiple):
+def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, batch_size, mode, min_width, max_width, target_width, height_multiple):
 	samples = []
 	bucket_counts = defaultdict(int)
 	missing = 0
@@ -40,13 +47,13 @@ def build_manifest(split_dirs, image_subdir, mask_subdir, mask_suffix, image_ext
 	for split_dir in split_dirs:
 		split_dir = Path(split_dir)
 		names = read_image_list(split_dir / 'image_list.txt')
-		image_dir = split_dir / image_subdir
+		images = index_images(split_dir / image_subdir)
 		mask_dir = split_dir / mask_subdir
 
 		for name in names:
-			img_path = image_dir / f'{name}{image_ext}'
+			img_path = images.get(name)
 			mask_path = mask_dir / f'{name}{mask_suffix}.png'
-			if not img_path.exists() or not mask_path.exists():
+			if img_path is None or not mask_path.exists():
 				missing += 1
 				continue
 
@@ -119,7 +126,6 @@ def main():
 	parser.add_argument('--image_subdir', type=str, default='images')
 	parser.add_argument('--mask_subdir', type=str, default='semantic_masks')
 	parser.add_argument('--mask_suffix', type=str, default='', help='Suffix appended to the basename before .png for masks (LaRS uses none, MaSTr uses "m").')
-	parser.add_argument('--image_ext', type=str, default='.jpg')
 	parser.add_argument('--min_width', type=int, default=None, help=f'downscale mode only. Default {DEFAULT_MIN_WIDTH}.')
 	parser.add_argument('--max_width', type=int, default=None, help=f'downscale mode only. Default {DEFAULT_MAX_WIDTH}.')
 	parser.add_argument('--width', type=int, default=None, help='fixed_width mode only. Target width every image is rescaled to.')
@@ -142,7 +148,7 @@ def main():
 	min_width = DEFAULT_MIN_WIDTH if args.min_width is None else args.min_width
 	max_width = DEFAULT_MAX_WIDTH if args.max_width is None else args.max_width
 
-	manifest, stats = build_manifest(args.splits, args.image_subdir, args.mask_subdir, args.mask_suffix, args.image_ext, args.batch_size, args.mode, min_width, max_width, args.width, args.height_multiple)
+	manifest, stats = build_manifest(args.splits, args.image_subdir, args.mask_subdir, args.mask_suffix, args.batch_size, args.mode, min_width, max_width, args.width, args.height_multiple)
 
 	if args.mode == 'fixed_width':
 		manifest['crop_anchor'] = args.crop_anchor

@@ -118,7 +118,7 @@ def train_wasr(args):
         val_sampler = ResolutionBatchSampler(val_ds.sample_sizes(), args.batch_size, train=False)
         val_dl = DataLoader(val_ds, batch_sampler=val_sampler, num_workers=args.workers, prefetch_factor=prefetch_factor)
 
-    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, pyramid=args.pyramid)
+    model = models.get_model(args.model, num_classes=args.num_classes, pretrained=args.pretrained, mixer=args.mixer, enricher=args.enricher, project=args.project, backbone_weights=args.backbone_weights, pyramid=args.pyramid, sim_interp=args.sim_interp)
 
     if args.pretrained_weights is not None:
         print(f"Loading weights from: {args.pretrained_weights}")
@@ -133,7 +133,7 @@ def train_wasr(args):
     logger.log_hyperparams(args)
 
     monitor = args.monitor_metric if args.validation else None
-    callbacks = [ModelExporter(every_n_epochs=args.export_every, monitor=monitor, mode=args.monitor_metric_mode), LearningRateMonitor(logging_interval='step')]
+    callbacks = [ModelExporter(every_n_epochs=args.export_every, monitor=monitor, mode=args.monitor_metric_mode, metadata={'sim_interp': args.sim_interp}), LearningRateMonitor(logging_interval='step')]
     if args.validation and args.patience is not None:
         callbacks.append(EarlyStopping(monitor=args.monitor_metric, patience=args.patience, mode=args.monitor_metric_mode))
 

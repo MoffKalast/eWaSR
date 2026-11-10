@@ -261,7 +261,8 @@ def ewasr(num_classes, imu, backbone, **kwargs):
         ch_sim=256 if kwargs.get("ch_sim") is None else kwargs["ch_sim"],
         enricher="SS" if kwargs.get("enricher") is None else kwargs["enricher"],
         project=False if kwargs.get("project") is None else kwargs["project"],
-        pyramid=pyramid
+        pyramid=pyramid,
+        sim_interp="nearest" if kwargs.get("sim_interp") is None else kwargs["sim_interp"]
     )
 
     model = WaSR(bb, decoder, imu=imu)

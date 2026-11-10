@@ -143,7 +143,7 @@ def get_token_mixer(letter):
 
 class EWaSRDecoder(nn.Module):
     
-    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False, pyramid=False, ch_stem=64, ch_head=64):
+    def __init__(self, num_classes=3, L = 6, ch=512, ch_sim=256, mixer="CCCCSS", enricher="SS", imu=False, project=False, pyramid=False, ch_stem=64, ch_head=64, sim_interp="nearest"):
         
         super(EWaSRDecoder, self).__init__()
         
@@ -201,10 +201,10 @@ class EWaSRDecoder(nn.Module):
             self.metaformers_skip2 = nn.Sequential(*metaformers_skip2)
         """
 
-        self.sim1 = SIM(self.ch[0], ch_sim)
-        self.sim2 = SIM(self.ch[1], ch_sim)
-        self.sim3 = SIM(self.ch[2], ch_sim)
-        self.sim4 = SIM(self.ch[3], ch_sim)
+        self.sim1 = SIM(self.ch[0], ch_sim, sim_interp)
+        self.sim2 = SIM(self.ch[1], ch_sim, sim_interp)
+        self.sim3 = SIM(self.ch[2], ch_sim, sim_interp)
+        self.sim4 = SIM(self.ch[3], ch_sim, sim_interp)
         
         head_in = ch_sim+1 if self.imu else ch_sim
 

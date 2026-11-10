@@ -58,6 +58,7 @@ class LitModel(pl.LightningModule):
         #parser.add_argument("--ablation", type=str, default=None, choices=["noarm1","noarm2", "noaspp", "noaspp1", "noffm", "noffm1"])
         parser.add_argument("--enricher", type=str, default="SS", help="Token mixers in long-skip feature enricher.")
         parser.add_argument("--pyramid", action='store_true', help="Run the segmentation head at half resolution, fed by the backbone stem and a Laplacian pyramid level.")
+        parser.add_argument("--sim_interp", type=str, default="nearest", choices=["nearest", "bilinear"], help="Upsampling mode for the global tokens injected into each decoder branch.")
         parser.add_argument("--log_images_every", type=int, default=LOG_IMAGES_EVERY, help="Log fixed validation predictions to TensorBoard every n epochs (0 disables, also disables logging the first training batches).")
     
         return parser
