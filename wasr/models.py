@@ -32,7 +32,7 @@ def get_model(model_name, num_classes=3, pretrained=True, **kwargs):
         model = wasr_deeplabv2_resnet18(num_classes=num_classes, imu=imu)
     elif model_name.startswith('ewasr'):
         backbone = model_name.split("_")[1].split("_")[0]
-        model = ewasr(num_classes = num_classes, imu = imu, backbone=backbone, **kwargs)
+        model = ewasr(num_classes = num_classes, imu = imu, backbone=backbone, pretrained=pretrained, **kwargs)
     else:
         raise ValueError('Unknown model: %s' % model_name)
 
@@ -216,8 +216,11 @@ backbone_weight_urls = {
     }
 }
 
-def resnet_backbone(name, weights_tag=None):
+def resnet_backbone(name, weights_tag=None, pretrained=True):
     ctor = {'resnet18': resnet18, 'resnet34': resnet34}[name]
+    if not pretrained:
+        return ctor(pretrained=False)
+
     if weights_tag is None:
         return ctor(pretrained=True)
 
@@ -230,12 +233,12 @@ def resnet_backbone(name, weights_tag=None):
     return backbone
 
 
-def ewasr(num_classes, imu, backbone, **kwargs):
+def ewasr(num_classes, imu, backbone, pretrained=True, **kwargs):
 
     pyramid = bool(kwargs.get("pyramid"))
 
     if backbone in ("resnet18", "resnet34"):
-        bb = resnet_backbone(backbone, kwargs.get("backbone_weights"))
+        bb = resnet_backbone(backbone, kwargs.get("backbone_weights"), pretrained)
         return_layers = {
             'layer4': 'out',
             'layer1': 'skip1',

@@ -1,13 +1,13 @@
 import albumentations as A
 import torchvision.transforms as T
 
-def get_augmentation_transform():
+def get_augmentation_transform(noise_std=(0.012, 0.028)):
     color_transform = A.Compose([
         A.ColorJitter(p=0.7, hue=0.05),
         A.RandomGamma(p=1, gamma_limit=(70,120))], p=0.5)
 
     noise_transform = A.Compose([
-        A.GaussNoise(std_range=(0.012, 0.028), p=0.5),
+        A.GaussNoise(std_range=tuple(noise_std), p=0.5),
         A.ISONoise(p=0.5)], p=0.3)
 
     transform = A.Compose([

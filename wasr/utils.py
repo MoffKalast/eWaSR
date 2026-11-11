@@ -1,4 +1,5 @@
 import os
+import time
 import torch
 from torch import nn
 import pytorch_lightning as pl
@@ -50,6 +51,25 @@ class ModelExporter(pl.Callback):
 
     def on_fit_end(self, trainer, pl_module):
         self._export(trainer, pl_module, 'weights.pth')
+
+class EpochPrinter(pl.Callback):
+    def __init__(self, metrics=('train/loss', 'val/loss', 'val/miou', 'val/iou/obstacle', 'val/iou/water')):
+        super().__init__()
+        self.metrics = metrics
+        self.start = None
+
+    def on_train_start(self, trainer, pl_module):
+        self.start = time.time()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if not trainer.is_global_zero:
+            return
+
+        epoch = trainer.current_epoch + 1
+        elapsed = time.time() - self.start
+        remaining = elapsed / epoch * (trainer.max_epochs - epoch)
+        values = '  '.join('%s %.4f' % (m, trainer.callback_metrics[m].item()) for m in self.metrics if m in trainer.callback_metrics)
+        print('epoch %d/%d  %s  elapsed %.0f min  remaining ~%.0f min' % (epoch, trainer.max_epochs, values, elapsed / 60, remaining / 60), flush=True)
 
 class IntermediateLayerGetter(nn.ModuleDict):
     """

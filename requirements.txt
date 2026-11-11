@@ -4,6 +4,8 @@ pytorch-lightning>=1.0.6
 Pillow
 numpy
 tqdm
+scipy
+matplotlib
 timm==0.6.5
 albumentations>=2.0
 tensorboard

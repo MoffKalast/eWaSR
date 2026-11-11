@@ -9,7 +9,7 @@ from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 
 import wasr.models as models
 from wasr.train import LitModel
-from wasr.utils import ModelExporter, load_weights
+from wasr.utils import ModelExporter, EpochPrinter, load_weights
 from datasets.lars import LaRSDataset, ResolutionBatchSampler
 from datasets.transforms import get_augmentation_transform, PytorchHubNormalization
 
@@ -30,6 +30,7 @@ EXPORT_EVERY = 10
 BACKBONE_WEIGHTS = None
 MONITOR_VAR = 'val/miou'
 MONITOR_VAR_MODE = 'max'
+NOISE_STD = [0.012, 0.028]
 
 
 
@@ -82,6 +83,8 @@ def get_arguments(input_args=None):
                         help="Maximize or minimize the monitored metric.")
     parser.add_argument("--no_augmentation", action="store_true",
                         help="Disable on-the-fly image augmentation of the dataset.")
+    parser.add_argument("--noise_std", type=float, nargs=2, default=NOISE_STD,
+                        help="Min and max standard deviation of the Gaussian noise augmentation, as a fraction of the pixel range.")
     parser.add_argument("--precision", default=PRECISION, type=int, choices=[16,32],
                         help="Floating point precision.")
 
@@ -104,7 +107,7 @@ def train_wasr(args):
     transform = None
     # Data augmentation
     if not args.no_augmentation:
-        transform = get_augmentation_transform()
+        transform = get_augmentation_transform(args.noise_std)
 
     prefetch_factor = args.prefetch_factor if args.workers > 0 else None
 
@@ -133,7 +136,7 @@ def train_wasr(args):
     logger.log_hyperparams(args)
 
     monitor = args.monitor_metric if args.validation else None
-    callbacks = [ModelExporter(every_n_epochs=args.export_every, monitor=monitor, mode=args.monitor_metric_mode, metadata={'sim_interp': args.sim_interp}), LearningRateMonitor(logging_interval='step')]
+    callbacks = [ModelExporter(every_n_epochs=args.export_every, monitor=monitor, mode=args.monitor_metric_mode, metadata={'sim_interp': args.sim_interp}), LearningRateMonitor(logging_interval='step'), EpochPrinter()]
     if args.validation and args.patience is not None:
         callbacks.append(EarlyStopping(monitor=args.monitor_metric, patience=args.patience, mode=args.monitor_metric_mode))
 
