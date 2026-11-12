@@ -25,6 +25,7 @@ OBSTACLE, WATER, SKY, IGNORE = 0, 1, 2, 3
 PALETTE = np.array([[247, 195, 37], [41, 167, 224], [90, 75, 164], [0, 0, 0]], dtype=np.uint8)
 METRICS = {'miou': True, 'iou_obstacle': True, 'iou_water': True, 'iou_sky': True, 'accuracy': True, 'water_edge_f1': True, 'false_obstacle': False, 'missed_obstacle': False, 'spurious_blobs': False}
 CAPTION_METRICS = ('miou', 'iou_obstacle', 'water_edge_f1', 'false_obstacle', 'missed_obstacle', 'spurious_blobs')
+BINS = np.linspace(0, 1, 101)
 
 device = None
 
@@ -42,6 +43,7 @@ def get_arguments():
 	parser.add_argument('--batch', type=int, default=1, help='Test images per forward pass; images are batched with others of the same resolution.')
 	parser.add_argument('--num_gpu', type=int, default=1, help='Number of GPUs to spread the runs over.')
 	parser.add_argument('--parallel_per_gpu', type=int, default=1, help='Runs evaluated at the same time on each GPU.')
+	parser.add_argument('--confidence', action='store_true', help='Also write confidence.png and confidence.csv with predicted probability histograms on water pixels.')
 	return parser.parse_args()
 
 
@@ -71,7 +73,7 @@ def load_model(weights):
 def predict(model, image):
 	logits = model({'image': image.to(device)})['out']
 	logits = F.interpolate(logits, size=image.shape[2:], mode='bilinear', align_corners=False)
-	return logits.argmax(1).cpu().numpy()
+	return logits.softmax(1).cpu().numpy()
 
 
 def hard_labels(segmentation):
@@ -167,12 +169,21 @@ def evaluate(model, dataset, items, args, show_progress):
 	loader = DataLoader(EvalBatches(dataset, items, batches), batch_size=None, num_workers=args.workers, prefetch_factor=1 if args.workers > 0 else None)
 
 	rows = []
-	for positions, image, gt, names in tqdm(loader, leave=False, disable=not show_progress):
-		pred = predict(model, image)
-		for position, p, g, name in zip(positions, pred, gt, names):
-			rows.append({'image': name, 'position': position, 'width': g.shape[1], 'height': g.shape[0], **image_metrics(p, g.numpy().astype(np.int64), args.tolerance)})
+	histograms = {'water': np.zeros(len(BINS) - 1, dtype=np.int64), 'false_obstacle': np.zeros(len(BINS) - 1, dtype=np.int64)}
 
-	return sorted(rows, key=lambda row: row['position'])
+	for positions, image, gt, names in tqdm(loader, leave=False, disable=not show_progress):
+		probs = predict(model, image)
+		for position, prob, g, name in zip(positions, probs, gt, names):
+			g = g.numpy().astype(np.int64)
+			pred = prob.argmax(0)
+			rows.append({'image': name, 'position': position, 'width': g.shape[1], 'height': g.shape[0], **image_metrics(pred, g, args.tolerance)})
+
+			if args.confidence:
+				water = g == WATER
+				histograms['water'] += np.histogram(prob[WATER][water], BINS)[0]
+				histograms['false_obstacle'] += np.histogram(prob[OBSTACLE][water & (pred == OBSTACLE)], BINS)[0]
+
+	return sorted(rows, key=lambda row: row['position']), histograms
 
 
 def make_panel(image, gt, pred, caption):
@@ -194,7 +205,7 @@ def save_worst(model, dataset, items, rows, run_dir, count, metric):
 	for rank, row in enumerate(ranked[:count], 1):
 		features, labels = dataset[items[row['position']]]
 		image = features['image_original'].numpy().transpose(1, 2, 0)
-		pred = predict(model, features['image'].unsqueeze(0))[0]
+		pred = predict(model, features['image'].unsqueeze(0))[0].argmax(0)
 		gt = hard_labels(labels['segmentation']).astype(np.int64)
 
 		caption = '%s   ' % row['image'] + '   '.join('%s %.4g' % (m, row[m]) for m in CAPTION_METRICS)
@@ -236,6 +247,37 @@ def init_worker(devices):
 	device = torch.device(devices.get())
 
 
+def confidence_row(label, histograms):
+	water = histograms['water'] / max(histograms['water'].sum(), 1)
+	false_obstacle = histograms['false_obstacle'] / max(histograms['false_obstacle'].sum(), 1)
+	return {'label': label, 'water_pixels': int(histograms['water'].sum()), 'water_below_0.99': float(water[:99].sum()), 'water_below_0.9': float(water[:90].sum()), 'water_below_0.7': float(water[:70].sum()), 'false_obstacle_pixels': int(histograms['false_obstacle'].sum()), 'false_obstacle_below_0.6': float(false_obstacle[:60].sum()), 'false_obstacle_above_0.9': float(false_obstacle[90:].sum())}
+
+
+def plot_confidence(labels, histograms, path):
+	centers = (BINS[:-1] + BINS[1:]) / 2
+	fig, axes = plt.subplots(1, 2, figsize=(16, 5.5))
+
+	for label, hist in zip(labels, histograms):
+		axes[0].plot(centers, hist['water'] / max(hist['water'].sum(), 1), label=label)
+		axes[1].plot(centers, hist['false_obstacle'] / max(hist['false_obstacle'].sum(), 1), label=label)
+
+	axes[0].set_title('water probability on true water pixels')
+	axes[0].set_xlabel('predicted water probability')
+	axes[0].set_yscale('log')
+	axes[1].set_title('obstacle probability on water pixels wrongly predicted as obstacle')
+	axes[1].set_xlabel('predicted obstacle probability')
+	axes[1].set_xlim(0.3, 1.0)
+
+	for ax in axes:
+		ax.set_ylabel('fraction of pixels')
+		ax.grid(alpha=0.3)
+		ax.legend(fontsize=8)
+
+	fig.tight_layout()
+	fig.savefig(path, dpi=120)
+	plt.close(fig)
+
+
 def evaluate_run(label, weights, args, show_progress):
 	print('evaluating %s on %s' % (label, device), flush=True)
 
@@ -243,7 +285,7 @@ def evaluate_run(label, weights, args, show_progress):
 	items = [(i, max(sizes, key=lambda s: s[0] * s[1])) for i, sizes in enumerate(dataset.sample_sizes())]
 
 	model = load_model(weights)
-	rows = evaluate(model, dataset, items, args, show_progress)
+	rows, histograms = evaluate(model, dataset, items, args, show_progress)
 
 	run_dir = Path(args.output_dir) / label
 	run_dir.mkdir(parents=True, exist_ok=True)
@@ -253,7 +295,7 @@ def evaluate_run(label, weights, args, show_progress):
 	summary = {'label': label, 'images': len(rows), **{m: float(np.nanmean([row[m] for row in rows])) for m in METRICS}}
 	print('%s done on %d images\n  %s' % (label, len(rows), '  '.join('%s %.4f' % (m, summary[m]) for m in METRICS)), flush=True)
 
-	return summary
+	return summary, histograms
 
 
 def main():
@@ -276,13 +318,20 @@ def main():
 
 	with ProcessPoolExecutor(max_workers=slots, mp_context=context, initializer=init_worker, initargs=(devices,)) as pool:
 		futures = [pool.submit(evaluate_run, label, weights, args, slots == 1) for label, weights in runs]
-		summary = [future.result() for future in futures]
+		results = [future.result() for future in futures]
+
+	summary = [s for s, _ in results]
 
 	output_dir = Path(args.output_dir)
 	output_dir.mkdir(parents=True, exist_ok=True)
 	write_csv(output_dir / 'summary.csv', sorted(summary, key=lambda row: -row['miou']))
 	plot_ranking(summary, output_dir / 'ranking.png')
 	print('wrote %s and %s' % (output_dir / 'summary.csv', output_dir / 'ranking.png'))
+
+	if args.confidence:
+		write_csv(output_dir / 'confidence.csv', [confidence_row(s['label'], h) for s, h in results])
+		plot_confidence([s['label'] for s, _ in results], [h for _, h in results], output_dir / 'confidence.png')
+		print('wrote %s and %s' % (output_dir / 'confidence.csv', output_dir / 'confidence.png'))
 
 
 if __name__ == '__main__':
