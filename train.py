@@ -74,7 +74,7 @@ def get_arguments(input_args=None):
     parser.add_argument("--model", type=str, choices=models.model_list, default=MODEL,
                         help="Which model architecture to use for training.")
     parser.add_argument("--backbone_weights", type=str, default=BACKBONE_WEIGHTS,
-                        help="timm pretrained tag for the backbone, e.g. a1_in1k. Uses torchvision weights if unset.")
+                        help="timm pretrained tag for the backbone, e.g. a1_in1k, or a path to a backbone .pth (e.g. from COCO-Stuff pretraining). Uses torchvision weights if unset.")
     parser.add_argument("--export_every", type=int, default=EXPORT_EVERY,
                         help="Export a standalone .pth every n epochs (0 disables).")
     parser.add_argument("--monitor_metric", type=str, default=MONITOR_VAR,

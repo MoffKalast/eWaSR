@@ -1,3 +1,4 @@
+import os
 from collections import OrderedDict
 
 import torch
@@ -223,6 +224,12 @@ def resnet_backbone(name, weights_tag=None, pretrained=True):
 
     if weights_tag is None:
         return ctor(pretrained=True)
+
+    if os.path.isfile(weights_tag):
+        backbone = ctor(pretrained=False)
+        backbone.fc = nn.Identity()
+        backbone.load_state_dict(torch.load(weights_tag, map_location='cpu'))
+        return backbone
 
     urls = backbone_weight_urls[name]
     if weights_tag not in urls:
